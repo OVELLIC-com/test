@@ -29,11 +29,26 @@ packages="$(node -e '
   for (const p of ordered) console.log([p.name, p.version, p.filename, p.integrity].join(" "));
 ' "$manifest")"
 
+# wait_for_integrity SPEC INTEGRITY: true once the registry serves SPEC with
+# exactly INTEGRITY, polling for up to a minute.
+wait_for_integrity() {
+  local spec="$1" want="$2" attempt got
+  for attempt in 1 2 3 4 5 6; do
+    sleep 10
+    got="$(npm view "$spec" dist.integrity --prefer-online 2>/dev/null || true)"
+    [ -z "$got" ] && continue
+    [ "$got" = "$want" ] && return 0
+    echo "error: $spec is on the registry with different content ($got)" >&2
+    return 1
+  done
+  return 1
+}
+
 published=0
 skipped=0
 while read -r name version filename integrity; do
   [ -n "$name" ] || continue
-  existing="$(npm view "$name@$version" dist.integrity 2>/dev/null || true)"
+  existing="$(npm view "$name@$version" dist.integrity --prefer-online 2>/dev/null || true)"
   if [ -n "$existing" ]; then
     if [ "$existing" != "$integrity" ]; then
       echo "error: $name@$version is already on the registry with different content" >&2
@@ -46,8 +61,21 @@ while read -r name version filename integrity; do
     skipped=$((skipped + 1))
     continue
   fi
-  npm publish "$dir/tarballs/$filename" --tag latest --access public
-  published=$((published + 1))
+  if npm publish "$dir/tarballs/$filename" --tag latest --access public; then
+    published=$((published + 1))
+    continue
+  fi
+  # The registry answers reads from a cache that trails its writes by seconds,
+  # so a re-run that starts right after a successful one can find nothing,
+  # publish, and be refused with a conflict over the version that is already
+  # there. Wait for the read side to catch up before deciding it was a failure.
+  if wait_for_integrity "$name@$version" "$integrity"; then
+    echo "skip $name@$version (published by an earlier run, same content)" >&2
+    skipped=$((skipped + 1))
+    continue
+  fi
+  echo "error: could not publish $name@$version" >&2
+  exit 1
 done <<EOF
 $packages
 EOF

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.3 — 2026-11-04
+
+Third rehearsal release: main and the tag are pushed separately, and publish
+waits out the registry's read lag.
+
 ## v0.0.2 — 2026-11-04
 
 Second rehearsal release: the greeting changes. Checks that an ordinary
