@@ -15,5 +15,5 @@ func main() {
 		fmt.Printf("mexc-rehearsal version %s (commit %s, built %s)\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date)
 		return
 	}
-	fmt.Printf("hello from %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("hello again from %s/%s\n", runtime.GOOS, runtime.GOARCH)
 }
