@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.4 — 2026-11-05
+
+Fourth rehearsal release: the main package also gets a release-<version>
+dist-tag next to latest.
+
 ## v0.0.3 — 2026-11-04
 
 Third rehearsal release: main and the tag are pushed separately, and publish

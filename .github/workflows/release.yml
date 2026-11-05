@@ -108,9 +108,10 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
-      # Trusted publishing needs npm 11.5.1 or later.
+      # Trusted publishing needs npm 11.5.1 or later; adding a dist-tag through
+      # it (publish.sh's release-<version> tag) needs 11.21.0 or later.
       - name: Update npm
-        run: npm install -g npm@^11.5.1
+        run: npm install -g npm@^11.21.0
 
       - name: Publish to npm
         run: bash .github/scripts/publish.sh dist/npm/scoped

@@ -3,7 +3,7 @@
 #
 # Publishes the npm packages a release build left in DIR (its
 # release-manifest.json and tarballs/) to the registry npm is configured for,
-# under the `latest` dist-tag.
+# under the `latest` dist-tag, then tags the main package release-<version>.
 #
 # Platform packages go first and the main package last: the main package pins
 # each platform package to this exact version, so a run that fails part-way can
@@ -81,3 +81,29 @@ $packages
 EOF
 
 echo "published $published, skipped $skipped" >&2
+
+# The main package also carries a release-<version> dist-tag next to latest,
+# the convention of the versions published before this workflow. The platform
+# packages never had one. Adding a dist-tag through trusted publishing needs
+# "Allow npm dist-tag" on the main package's trusted publisher, and npm 11.21.0
+# or later. It runs on every attempt, so a re-run repairs a tag that failed
+# after the publish; the retries cover the registry's read lag on a version
+# published seconds ago.
+read -r product version <<EOF
+$(node -e '
+  const m = require(require("path").resolve(process.argv[1]));
+  process.stdout.write(`${m.product} ${m.version}`);
+' "$manifest")
+EOF
+release_tag="release-$version"
+for attempt in 1 2 3 4 5 6; do
+  if npm dist-tag add "$product@$version" "$release_tag"; then
+    echo "tagged $product@$version $release_tag" >&2
+    exit 0
+  fi
+  [ "$attempt" = 6 ] && break
+  sleep 10
+done
+echo "error: could not add the $release_tag dist-tag to $product@$version" >&2
+echo "  check that the trusted publisher of $product allows npm dist-tag" >&2
+exit 1
