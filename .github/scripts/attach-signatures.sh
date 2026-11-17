@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# .github/scripts/attach-signatures.sh DIR TAG CA_FILE
+# .github/scripts/attach-signatures.sh DIR TAG [CA_FILE]
 #
 # Attaches the detached Windows signatures published for TAG on the
 # `signatures` branch to the binaries this run built, then repacks the npm
@@ -11,11 +11,13 @@
 # publishing unsigned binaries once signatures exist for the version.
 #
 # Without a signatures entry for TAG the packages are left as built (unsigned).
+# CA_FILE anchors the signature chain; it defaults to the system bundle, which
+# holds the public roots a production code-signing certificate chains to.
 set -euo pipefail
 
-dir="${1:?usage: attach-signatures.sh DIR TAG CA_FILE}"
-tag="${2:?usage: attach-signatures.sh DIR TAG CA_FILE}"
-ca="${3:?usage: attach-signatures.sh DIR TAG CA_FILE}"
+dir="${1:?usage: attach-signatures.sh DIR TAG [CA_FILE]}"
+tag="${2:?usage: attach-signatures.sh DIR TAG [CA_FILE]}"
+ca="${3:-/etc/ssl/certs/ca-certificates.crt}"
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -74,6 +76,6 @@ done <<EOF
 $entries
 EOF
 
-# Repack from the signed binaries. The kit empties its output directory first,
+# Repack from the signed binaries. Packing empties its output directory first,
 # which is why the binaries were copied out of it.
-node "$root/npmkit/package.mjs" --product "$root/npm/product.json" --output "$dir" --skip-build --binaries-dir "$signed_dir"
+(cd "$root" && bash scripts/build.sh --release --product scoped --binaries-dir "$signed_dir")

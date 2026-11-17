@@ -10,6 +10,8 @@
 #                                      # tagless prerelease npm tarballs -> ./dist/npm/{scoped,unscoped}/
 #   bash scripts/build.sh --release [--product scoped|unscoped|all]
 #                                      # npm tarballs             -> ./dist/npm/{scoped,unscoped}/
+#   ... --snapshot|--release --build-only        # compile once -> ./dist/npm/binaries/
+#   ... --snapshot|--release --binaries-dir DIR  # pack both variants from DIR
 #
 # Version resolution: the latest git tag (e.g. v0.1.0), else "dev".
 set -euo pipefail
@@ -231,7 +233,7 @@ package_npm() {
   *) echo "error: unsupported npm packaging mode: $command" >&2; exit 2 ;;
   esac
 
-  local version="" variant="all"
+  local version="" variant="all" build_only=0 binaries_dir=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
     --version)
@@ -244,12 +246,28 @@ package_npm() {
       variant="$2"
       shift 2
       ;;
+    --build-only)
+      build_only=1
+      shift
+      ;;
+    --binaries-dir)
+      [ "$#" -ge 2 ] || { echo "error: --binaries-dir requires a value" >&2; exit 2; }
+      binaries_dir="$2"
+      shift 2
+      ;;
     *)
       echo "error: unknown packaging option: $1" >&2
       exit 2
       ;;
     esac
   done
+  # The two halves of a build whose binaries change before packing (the release
+  # signs its Windows binaries): compile once, then pack from that copy. Asking
+  # for both halves at once is asking for nothing.
+  if [ "$build_only" = 1 ] && [ -n "$binaries_dir" ]; then
+    echo "error: --build-only and --binaries-dir cannot both be set" >&2
+    exit 2
+  fi
   if [ "$mode" = "snapshot" ]; then
     [ -n "$version" ] || { echo "error: --snapshot requires --version VERSION" >&2; exit 2; }
   elif [ -n "$version" ]; then
@@ -257,6 +275,20 @@ package_npm() {
     exit 2
   fi
   command -v node >/dev/null 2>&1 || { echo "error: Node.js is required for npm packaging" >&2; exit 1; }
+
+  # One compile, for one product: the two variants differ only in packageName,
+  # so their binaries are the same build. The result lands in dist/npm/binaries,
+  # outside both variant directories, because each packaging run empties its own.
+  if [ "$build_only" = 1 ]; then
+    local -a build_args=(npmkit/package.mjs --product npm/product.json --output dist/npm --build-only)
+    if [ "$mode" = "snapshot" ]; then
+      build_args+=(--snapshot --version "$version")
+    fi
+    node "${build_args[@]}"
+    echo "done -> dist/npm/binaries/"
+    return
+  fi
+
   # --product picks which package variant to build. The default builds both,
   # as before; a publisher that ships only one asks for it rather than building
   # and then ignoring the other.
@@ -280,6 +312,9 @@ package_npm() {
     if [ "$mode" = "snapshot" ]; then
       args+=(--snapshot --version "$version")
     fi
+    if [ -n "$binaries_dir" ]; then
+      args+=(--skip-build --binaries-dir "$binaries_dir")
+    fi
     node "${args[@]}"
   done
 }
@@ -301,7 +336,13 @@ scripts/build.sh — build mexc with version metadata injected from git.
 
   Either packaging mode also takes --product scoped|unscoped|all (default all)
   to build only one variant: scoped is npm/product.json, unscoped is
-  npm/product-unscoped.json.
+  npm/product-unscoped.json. And one of:
+    --build-only                     Compile every platform once and stop -> ./dist/npm/binaries/<platform-id>/
+    --binaries-dir DIR               Pack from DIR instead of compiling
+
+These two exist so binaries can be changed between compiling and packing — the
+release signs its Windows binaries there. Without either, a packaging mode
+compiles and packs each variant as it always has.
 
 With no argument the target is the machine this runs on. --target does not change
 that default; it only adds a way to ask for another one, and refuses if GOOS or

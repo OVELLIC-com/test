@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.0.5 — 2026-11-17
+
+Fifth rehearsal release: the real signing tooling (sync_build.sh, sign-windows.sh,
+attach-signatures.sh and release.yml) over this toy program. Windows binaries are
+signed by the build pod and the signatures attached by the release workflow.
+
 ## v0.0.4 — 2026-11-05
 
 Fourth rehearsal release: the main package also gets a release-<version>

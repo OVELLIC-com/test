@@ -36,10 +36,11 @@ function run(command, args, options = {}) {
 }
 
 function parseArgs(argv) {
-  const out = { skipBuild: false, snapshot: false };
+  const out = { skipBuild: false, buildOnly: false, snapshot: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--skip-build') out.skipBuild = true;
+    else if (arg === '--build-only') out.buildOnly = true;
     else if (arg === '--snapshot') out.snapshot = true;
     else if (['--product', '--output', '--version', '--binaries-dir'].includes(arg)) {
       if (!argv[index + 1]) fail(`${arg} requires a value`);
@@ -51,6 +52,9 @@ function parseArgs(argv) {
   if (!out.product) fail('--product is required');
   if (out.skipBuild && !out.binariesDir) fail('--skip-build requires --binaries-dir');
   if (out.binariesDir && !out.skipBuild) fail('--binaries-dir requires --skip-build');
+  // The two halves of one split: --build-only stops where --skip-build starts.
+  // Together they would build nothing and pack nothing.
+  if (out.buildOnly && out.skipBuild) fail('--build-only and --skip-build cannot both be set');
   if (out.snapshot && !out.version) fail('--snapshot requires --version');
   if (out.version && !out.snapshot) fail('--version requires --snapshot');
   return out;
@@ -176,9 +180,17 @@ function binaryName(product, platform) {
   return platform.goos === 'windows' ? `${product.binaryName}.exe` : product.binaryName;
 }
 
-function safeOutput(output, repo, fixture) {
+function safeOutput(output, repo, fixture, buildOnly = false) {
   const resolved = path.resolve(output);
   if (resolved === path.parse(resolved).root || resolved === os.homedir()) fail(`unsafe output directory ${resolved}`);
+  // --build-only writes the one binaries/ tree both variants are later packed
+  // from, so it lives beside them in dist/npm rather than inside either: every
+  // packaging run empties its own <output>/binaries, and a shared tree inside a
+  // variant directory would be deleted by that variant's own run.
+  if (buildOnly) {
+    if (resolved !== path.join(repo, 'dist', 'npm')) fail('--build-only output must be the repository dist/npm directory');
+    return resolved;
+  }
   const releaseOutputs = [
     path.join(repo, 'dist', 'npm', 'scoped'),
     path.join(repo, 'dist', 'npm', 'unscoped'),
@@ -467,7 +479,21 @@ function main() {
   const product = loadProduct(productFile);
   const packaging = packagingVersion(repo, args.version, args.snapshot);
   const { version } = packaging;
-  const output = safeOutput(args.output || path.join(repo, 'dist', 'npm'), repo, args.skipBuild);
+  const output = safeOutput(args.output || path.join(repo, 'dist', 'npm'), repo, args.skipBuild, args.buildOnly);
+  // --build-only compiles every platform exactly as a packaging run would -- the
+  // same version, commit and date stamped the same way -- and stops before
+  // staging, so something can be done to the binaries (signing the Windows ones)
+  // before `--skip-build --binaries-dir` packs them. No packing means no
+  // assertHostCanPack: cross-compiling works on every host.
+  if (args.buildOnly) {
+    fs.rmSync(path.join(output, 'binaries'), { recursive: true, force: true });
+    fs.mkdirSync(output, { recursive: true });
+    const builtCommit = git(repo, ['rev-parse', 'HEAD']);
+    const builtDate = git(repo, ['show', '-s', '--format=%cI', 'HEAD']);
+    const directory = buildBinaries(repo, product, version, output, builtCommit.slice(0, 12), builtDate);
+    process.stdout.write(`${JSON.stringify({ binaries: directory, version, platforms: product.platforms.length })}\n`);
+    return;
+  }
   // After argument validation, before anything expensive. A missing --version or
   // an unknown flag is wrong on every host and must be reported as itself;
   // putting the host check ahead of them made this answer "you are on Windows"
